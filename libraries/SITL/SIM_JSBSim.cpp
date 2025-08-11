@@ -47,7 +47,9 @@ JSBSim::JSBSim(const char *frame_str) :
     started_jsbsim(false),
     opened_control_socket(false),
     opened_fdm_socket(false),
-    frame(FRAME_NORMAL)
+    frame(FRAME_NORMAL),
+    sock_tick(true),
+    sock_sim_state(false)
 {
     if (strstr(frame_str, "elevon")) {
         frame = FRAME_ELEVON;
@@ -330,6 +332,18 @@ bool JSBSim::open_fdm_socket(void)
     return true;
 }
 
+bool JSBSim::open_tick_socket() {
+    if (opened_tick_socket) {
+        return true;
+    }
+    if (!sock_tick.bind("127.0.0.1", tick_port)) {
+        fprintf(stderr, "Failed to bind tick receive socket on port %u\n", tick_port);
+        return false;
+    }
+    sock_tick.set_blocking(true); // Set the socket to blocking mode
+    opened_tick_socket = true;
+    return true;
+}
 
 /*
   decode and send servos
@@ -458,16 +472,95 @@ void JSBSim::drain_control_socket()
         received = sock_control.recv(buf, buflen, 0);
     } while (received > 0);
 }
+
+void JSBSim::drain_sim_state_socket()
+{
+    const uint16_t buflen = 1024;
+    char buf[buflen];
+    ssize_t received;
+    do {
+        received = sock_sim_state.recv(buf, buflen, 0);
+    } while (received > 0);
+}
+
+void JSBSim::wait_for_tick()
+{
+    // Wait for a tick from the external application
+    fprintf(stderr, "Wait for tick\n");
+    char tick_buffer[10]; // Assuming a tick is a small message
+    ssize_t received = sock_tick.recv(tick_buffer, sizeof(tick_buffer), 0);
+    if (received <= 0) {
+        fprintf(stderr, "Error receiving tick: %s.\n", strerror(errno));
+        return; // Optionally handle error or timeout here
+    }
+}
+
+bool JSBSim::open_sim_state_socket() {
+    if (opened_sim_state_socket) {
+        return true;
+    }
+
+    socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (socket_fd < 0) {
+        fprintf(stderr, "Error opening socket");
+        return false;
+    }
+
+    memset(&sim_state_addr, 0, sizeof(sim_state_addr));
+    sim_state_addr.sin_family = AF_INET;
+    sim_state_addr.sin_port = htons(sim_state_port);
+    sim_state_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    opened_sim_state_socket = true;
+    return true;
+}
+
+void JSBSim::send_sim_state() {
+    char buffer[1024];
+
+    float r, p, y;
+    dcm.to_euler(&r, &p, &y);
+
+    int len = snprintf(buffer, sizeof(buffer), "%lud,%d,%d,%d,%f,%f,%f\n",
+                       time_now_us,
+                       location.lat,
+                       location.lng,
+                       location.alt,
+                       r,
+                       p,
+                       y);
+
+    // lat & lon must be converted by * 1e-7, alt is in cm
+    if (len > 0 && len < static_cast<int>(sizeof(buffer))) {
+        ssize_t sent = sendto(socket_fd, buffer, strlen(buffer), 0,
+                (struct sockaddr *)&sim_state_addr, sizeof(sim_state_addr));
+
+        if (sent < 0) {
+            fprintf(stderr, "Error sending state\n");
+        }
+    } else {
+        fprintf(stderr, "Text too long or something\n");
+    }
+}
+
 /*
   update the JSBSim simulation by one time step
  */
 void JSBSim::update(const struct sitl_input &input)
 {
+    // // Ensure the tick receive socket is set up
+    // if (!setup_tick_socket && !setupTickSocket()) {
+    //     fprintf(stderr, "Could not set up tick receiving socket.\n");
+    //     return;
+    // }
+
     while (!initialised) {
         if (!create_templates() ||
             !start_JSBSim() ||
             !open_control_socket() ||
-            !open_fdm_socket()) {
+            !open_fdm_socket() ||
+            !open_tick_socket() ||
+            !open_sim_state_socket()) {
             time_now_us = 1;
             return;
         }
@@ -475,6 +568,14 @@ void JSBSim::update(const struct sitl_input &input)
     }
     send_servos(input);
     recv_fdm(input);
+
+    if (step_ctr % 20 == 0) {
+        step_ctr = 0;
+        drain_sim_state_socket();
+        send_sim_state();
+    }
+    step_ctr++;
+
     adjust_frame_time(rate_hz);
     sync_frame_time();
     drain_control_socket();

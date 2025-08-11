@@ -24,7 +24,7 @@ struct float_array {
     uint16_t length;
     float *data;
 };
-    
+
 
 struct sitl_fdm {
     // this is the structure passed between FDM models and the main SITL code
@@ -110,7 +110,7 @@ public:
 
     // height above ground
     float height_agl;
-    
+
     static const struct AP_Param::GroupInfo var_info[];
     static const struct AP_Param::GroupInfo var_info2[];
     static const struct AP_Param::GroupInfo var_info3[];
@@ -195,7 +195,7 @@ public:
         WIND_TYPE_NO_LIMIT = 1,
         WIND_TYPE_COEF = 2,
     };
-    
+
     float wind_speed_active;
     float wind_direction_active;
     float wind_dir_z_active;
@@ -233,7 +233,7 @@ public:
     AP_Float temp_flight;
     AP_Float temp_tconst;
     AP_Float temp_baro_factor;
-    
+
     // differential pressure sensor tube order
     AP_Int8 arspd_signflip;
 

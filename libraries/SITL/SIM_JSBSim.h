@@ -21,6 +21,8 @@
 #include <AP_HAL/utility/Socket.h>
 
 #include "SIM_Aircraft.h"
+#include <netinet/in.h>
+#include <string>
 
 namespace SITL {
 
@@ -46,6 +48,20 @@ private:
     // UDP packets from JSBSim in fgFDM format
     SocketAPM sock_fgfdm;
 
+    // Tick socket
+    SocketAPM sock_tick;
+    unsigned tick_port = 53835; // Example port for tick messages
+
+    SocketAPM sock_sim_state;
+    bool opened_sim_state_socket = false;
+    // unsigned sim_state_port = 53836;
+
+    int socket_fd;
+    struct sockaddr_in sim_state_addr;
+    std::string sim_state_ip;
+    int sim_state_port = 53836;
+    int step_ctr;
+
     bool initialised;
 
     uint16_t control_port;
@@ -61,6 +77,7 @@ private:
     bool started_jsbsim;
     bool opened_control_socket;
     bool opened_fdm_socket;
+    bool opened_tick_socket = false;
 
     enum {
         FRAME_NORMAL,
@@ -76,6 +93,13 @@ private:
     void recv_fdm(const struct sitl_input &input);
     void check_stdout(void);
     bool expect(const char *str);
+
+    bool open_sim_state_socket(void);
+    bool open_tick_socket();
+    void send_sim_state();
+    void wait_for_tick();
+
+    void drain_sim_state_socket();
 
     void drain_control_socket();
 };

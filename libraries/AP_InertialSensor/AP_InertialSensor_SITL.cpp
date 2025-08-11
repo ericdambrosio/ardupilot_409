@@ -2,6 +2,8 @@
 #include "AP_InertialSensor_SITL.h"
 #include <SITL/SITL.h>
 #include <stdio.h>
+#include <fcntl.h>
+
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
 
@@ -10,6 +12,49 @@ const extern AP_HAL::HAL& hal;
 AP_InertialSensor_SITL::AP_InertialSensor_SITL(AP_InertialSensor &imu) :
     AP_InertialSensor_Backend(imu)
 {
+    fprintf(stderr, "GYRO Sample Rate: %u\n", gyro_sample_hz[0]);
+    fprintf(stderr, "ACCEL Sample Rate: %u\n", accel_sample_hz[0]);
+    fprintf(stderr, "Unique ID: %d", this->_id);
+    fprintf(stderr, "Get ID: %d", this->get_id());
+
+    // Hack to make sure we only publish one imu over SHM
+    use_shm = (gyro_sample_hz[0] == 1000);
+    // use_shm = false;
+
+    if (use_shm)
+    {
+        key = ftok("data.conf", 1);
+        shmid = shmget(key, sizeof(ShmIMUMsg), 0666|IPC_CREAT);
+        // sem = sem_open("/ap_imu", 0666|O_CREAT);
+        sem = sem_open("/ap_imu", O_CREAT, 0666, 1);
+
+        if (sem == SEM_FAILED)
+        {
+            fprintf(stderr, "Failed to create semaphore\n");
+        }
+
+        if (shmid == -1)
+        {
+            fprintf(stderr, "Failed to create shared memory segment\n");
+        } else
+        {
+            data = (uint8_t*)shmat(shmid, NULL, 0);
+            if (data == (void*)-1)
+            {
+                fprintf(stderr, "Failed to create shared memory segment\n");
+            } else
+            {
+                fprintf(stderr, "Succesfully created shared memory segment\n");
+            }
+        }
+    }
+}
+
+AP_InertialSensor_SITL::~AP_InertialSensor_SITL()
+{
+    shmdt(data);
+    sem_close(sem);
+    sem_unlink("/ap_imu");
 }
 
 /*
@@ -85,7 +130,7 @@ void AP_InertialSensor_SITL::generate_accel(uint8_t instance)
         yAccel += sinf(t * 2 * M_PI * vibe_freq.y) * accel_noise;
         zAccel += sinf(t * 2 * M_PI * vibe_freq.z) * accel_noise;
     }
-    
+
     // correct for the acceleration due to the IMU position offset and angular acceleration
     // correct for the centripetal acceleration
     // only apply corrections to first accelerometer
@@ -121,6 +166,10 @@ void AP_InertialSensor_SITL::generate_accel(uint8_t instance)
         _notify_new_accel_raw_sample(accel_instance[instance], accel);
     }
 
+    ShmIMUMsg.accel[0] = accel[0];
+    ShmIMUMsg.accel[1] = accel[1];
+    ShmIMUMsg.accel[2] = accel[2];
+
     _publish_temperature(instance, 23);
 }
 
@@ -131,7 +180,7 @@ void AP_InertialSensor_SITL::generate_gyro(uint8_t instance)
 {
     // minimum gyro noise is less than 1 bit
     float gyro_noise = ToRad(0.04f);
-    
+
     if (sitl->motors_on) {
         // add extra noise when the motors are on
         gyro_noise += ToRad(sitl->gyro_noise);
@@ -162,11 +211,14 @@ void AP_InertialSensor_SITL::generate_gyro(uint8_t instance)
     gyro.z *= (1 + scale.z*0.01f);
 
     _rotate_and_correct_gyro(gyro_instance[instance], gyro);
-    
+
     uint8_t nsamples = enable_fast_sampling(gyro_instance[instance])?8:1;
     for (uint8_t i=0; i<nsamples; i++) {
         _notify_new_gyro_raw_sample(gyro_instance[instance], gyro);
     }
+    ShmIMUMsg.gyro[0] = gyro.x;
+    ShmIMUMsg.gyro[1] = gyro.y;
+    ShmIMUMsg.gyro[2] = gyro.z;
 }
 
 void AP_InertialSensor_SITL::timer_update(void)
@@ -179,9 +231,11 @@ void AP_InertialSensor_SITL::timer_update(void)
         return;
     }
 #endif
+    bool should_send_shm = false;
     for (uint8_t i=0; i<INS_SITL_INSTANCES; i++) {
         if (now >= next_accel_sample[i]) {
             if (((1U<<i) & sitl->accel_fail_mask) == 0) {
+                should_send_shm = true;
                 generate_accel(i);
                 while (now >= next_accel_sample[i]) {
                     next_accel_sample[i] += 1000000UL / accel_sample_hz[i];
@@ -190,11 +244,33 @@ void AP_InertialSensor_SITL::timer_update(void)
         }
         if (now >= next_gyro_sample[i]) {
             if (((1U<<i) & sitl->gyro_fail_mask) == 0) {
+                should_send_shm = true;
                 generate_gyro(i);
                 while (now >= next_gyro_sample[i]) {
                     next_gyro_sample[i] += 1000000UL / gyro_sample_hz[i];
                 }
             }
+        }
+    }
+    if (use_shm && should_send_shm)
+    {
+        static unsigned long msg_id = 0;
+
+        if (shmid != -1 && data != (void*)-1)
+        {
+            unsigned long* q = (unsigned long*)data;
+            *q++ = msg_id;
+            *q++ = now;
+            float*v = (float*)q;
+            *v++ = ShmIMUMsg.accel[0];
+            *v++ = ShmIMUMsg.accel[1];
+            *v++ = ShmIMUMsg.accel[2];
+            *v++ = ShmIMUMsg.gyro[0];
+            *v++ = ShmIMUMsg.gyro[1];
+            *v++ = ShmIMUMsg.gyro[2];
+
+            sem_post(sem);
+            msg_id++;
         }
     }
 }
@@ -215,7 +291,7 @@ float AP_InertialSensor_SITL::gyro_drift(void)
 }
 
 
-bool AP_InertialSensor_SITL::update(void) 
+bool AP_InertialSensor_SITL::update(void)
 {
     for (uint8_t i=0; i<INS_SITL_INSTANCES; i++) {
         update_accel(accel_instance[i]);

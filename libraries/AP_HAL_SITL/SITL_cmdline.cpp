@@ -34,6 +34,7 @@
 #include <SITL/SIM_AirSim.h>
 #include <SITL/SIM_Scrimmage.h>
 #include <SITL/SIM_Webots.h>
+#include <SITL/SIM_JSON.h>
 
 #include <signal.h>
 #include <stdio.h>
@@ -129,6 +130,7 @@ static const struct {
     { "motorboat",          MotorBoat::create },
     { "crrcsim",            CRRCSim::create },
     { "jsbsim",             JSBSim::create },
+    { "JSON",               JSON::create },
     { "flightaxis",         FlightAxis::create },
     { "gazebo",             Gazebo::create },
     { "last_letter",        last_letter::create },
