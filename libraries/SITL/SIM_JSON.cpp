@@ -296,7 +296,8 @@ void JSON::recv_fdm(const struct sitl_input &input)
         dcm.from_euler(state.attitude[0], state.attitude[1], state.attitude[2]);
     }
 
-    if ((received_bitmask & AIRSPEED)) {
+    //if ((received_bitmask & AIRSPEED)) {
+    if (false) {
         // received airspeed directly
         airspeed = state.airspeed;
 

@@ -42,7 +42,7 @@ class AP_Airspeed
 {
 public:
     friend class AP_Airspeed_Backend;
-    
+
     // constructor
     AP_Airspeed();
 
@@ -122,7 +122,7 @@ public:
 
     // return true if all enabled sensors are healthy
     bool all_healthy(void) const;
-    
+
     void setHIL(float pressure) { state[0].healthy=state[0].hil_set=true; state[0].hil_pressure=pressure; }
 
     // return time in ms of last update
@@ -156,19 +156,20 @@ public:
         TYPE_I2C_DLVR_20IN=10,
         TYPE_I2C_DLVR_30IN=11,
         TYPE_I2C_DLVR_60IN=12,
+        TYPE_SITL=100,
     };
 
     // get current primary sensor
     uint8_t get_primary(void) const { return primary; }
 
     static AP_Airspeed *get_singleton() { return _singleton; }
-    
+
 private:
     static AP_Airspeed *_singleton;
 
     AP_Int8 primary_sensor;
     AP_Int32 _options;    // bitmask options for airspeed
-    
+
     struct {
         AP_Float offset;
         AP_Float ratio;
@@ -218,7 +219,7 @@ private:
 
     // current primary sensor
     uint8_t primary;
-    
+
     void read(uint8_t i);
     // return the differential pressure in Pascal for the last airspeed reading for the requested instance
     // returns 0 if the sensor is not enabled

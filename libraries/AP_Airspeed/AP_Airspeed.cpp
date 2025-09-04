@@ -3,12 +3,12 @@
    it under the terms of the GNU General Public License as published by
    the Free Software Foundation, either version 3 of the License, or
    (at your option) any later version.
-   
+
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-   
+
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
@@ -25,6 +25,7 @@
 #include <AP_Logger/AP_Logger.h>
 #include <utility>
 #include "AP_Airspeed.h"
+#include "AP_Airspeed_SITL.h"
 #include "AP_Airspeed_MS4525.h"
 #include "AP_Airspeed_MS5525.h"
 #include "AP_Airspeed_SDP3X.h"
@@ -103,7 +104,7 @@ const AP_Param::GroupInfo AP_Airspeed::var_info[] = {
 
     // @Param: _PIN
     // @DisplayName: Airspeed pin
-    // @Description: The pin number that the airspeed sensor is connected to for analog sensors. Set to 15 on the Pixhawk for the analog airspeed port. 
+    // @Description: The pin number that the airspeed sensor is connected to for analog sensors. Set to 15 on the Pixhawk for the analog airspeed port.
     // @User: Advanced
     AP_GROUPINFO("_PIN",  4, AP_Airspeed, param[0].pin, ARSPD_DEFAULT_PIN),
 
@@ -188,7 +189,7 @@ const AP_Param::GroupInfo AP_Airspeed::var_info[] = {
 
     // @Param: 2_PIN
     // @DisplayName: Airspeed pin for 2nd airspeed sensor
-    // @Description: Pin number indicating location of analog airspeed sensors. Pixhawk/Cube if set to 15. 
+    // @Description: Pin number indicating location of analog airspeed sensors. Pixhawk/Cube if set to 15.
     // @User: Advanced
     AP_GROUPINFO("2_PIN",  15, AP_Airspeed, param[1].pin, 0),
 
@@ -288,6 +289,9 @@ void AP_Airspeed::init()
             break;
         case TYPE_I2C_SDP3X:
             sensor[i] = new AP_Airspeed_SDP3X(*this, i);
+            break;
+        case TYPE_SITL:
+            sensor[i] = new AP_Airspeed_SITL(*this, i);
             break;
         case TYPE_I2C_DLVR_5IN:
 #if !HAL_MINIMIZE_FEATURES
@@ -393,7 +397,7 @@ void AP_Airspeed::update_calibration(uint8_t i, float raw_pressure)
     if (!enabled(i) || state[i].cal.start_ms == 0) {
         return;
     }
-    
+
     // consider calibration complete when we have at least 15 samples
     // over at least 1 second
     if (AP_HAL::millis() - state[i].cal.start_ms >= 1000 &&
@@ -427,7 +431,7 @@ void AP_Airspeed::read(uint8_t i)
     if (state[i].cal.start_ms != 0) {
         update_calibration(i, raw_pressure);
     }
-    
+
     airspeed_pressure = raw_pressure - param[i].offset;
 
     // remember raw pressure for logging
@@ -450,19 +454,25 @@ void AP_Airspeed::read(uint8_t i)
     switch ((enum pitot_tube_order)param[i].tube_order.get()) {
     case PITOT_TUBE_ORDER_NEGATIVE:
         state[i].last_pressure  = -airspeed_pressure;
-        state[i].raw_airspeed   = sqrtf(MAX(-airspeed_pressure, 0) * param[i].ratio);
-        state[i].airspeed       = sqrtf(MAX(-state[i].filtered_pressure, 0) * param[i].ratio);
+        //state[i].raw_airspeed   = sqrtf(MAX(-airspeed_pressure, 0) * param[i].ratio);
+        //state[i].airspeed       = sqrtf(MAX(-state[i].filtered_pressure, 0) * param[i].ratio);
+        state[i].raw_airspeed   = raw_pressure;
+        state[i].airspeed       = raw_pressure;
         break;
     case PITOT_TUBE_ORDER_POSITIVE:
         state[i].last_pressure  = airspeed_pressure;
-        state[i].raw_airspeed   = sqrtf(MAX(airspeed_pressure, 0) * param[i].ratio);
-        state[i].airspeed       = sqrtf(MAX(state[i].filtered_pressure, 0) * param[i].ratio);
+        //state[i].raw_airspeed   = sqrtf(MAX(airspeed_pressure, 0) * param[i].ratio);
+        //state[i].airspeed       = sqrtf(MAX(state[i].filtered_pressure, 0) * param[i].ratio);
+        state[i].raw_airspeed   = raw_pressure;
+        state[i].airspeed       = raw_pressure;
         break;
     case PITOT_TUBE_ORDER_AUTO:
     default:
         state[i].last_pressure  = fabsf(airspeed_pressure);
-        state[i].raw_airspeed   = sqrtf(fabsf(airspeed_pressure) * param[i].ratio);
-        state[i].airspeed       = sqrtf(fabsf(state[i].filtered_pressure) * param[i].ratio);
+        //state[i].raw_airspeed   = sqrtf(fabsf(airspeed_pressure) * param[i].ratio);
+        //state[i].airspeed       = sqrtf(fabsf(state[i].filtered_pressure) * param[i].ratio);
+        state[i].raw_airspeed   = raw_pressure;
+        state[i].airspeed       = raw_pressure;
         break;
     }
 
